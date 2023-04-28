@@ -7,15 +7,15 @@
 **Table of Contents**
 
 * [Methods](#methods)
-    * [\Sue\EventLoop\loop()](#loop)
-    * [\Sue\EventLoop\setTimeout()](#settimeout)
-    * [\Sue\EventLoop\setInterval()](#setinterval)
-    * [\Sue\EventLoop\cancelTimer()](#canceltimer)
-    * [\Sue\EventLoop\nextTick](#nexttick)
-    * [\Sue\EventLoop\throttle](#throttle)
-    * [\Sue\EventLoop\throttleById](#throttlebyId)
-    * [\Sue\EventLoop\debounce](#debounce)
-    * [\Sue\EventLoop\debounceById](#debouncebyId)
+    * [Sue\EventLoop\loop()](#loop)
+    * [Sue\EventLoop\setTimeout()](#settimeout)
+    * [Sue\EventLoop\setInterval()](#setinterval)
+    * [Sue\EventLoop\cancelTimer()](#canceltimer)
+    * [Sue\EventLoop\nextTick](#nexttick)
+    * [Sue\EventLoop\throttle](#throttle)
+    * [Sue\EventLoop\throttleById](#throttlebyId)
+    * [Sue\EventLoop\debounce](#debounce)
+    * [Sue\EventLoop\debounceById](#debouncebyId)
 * [Install](#install)
 * [Tests](#tests)
 * [License](#license)
@@ -61,15 +61,20 @@ loop()->run();
 `setInterval`方法可以在eventloop上添加一个可以重复执行的timer
 
 ```php
+use React\EventLoop\TimerInterface;
+
+use function Sue\EventLoop\setInterval;
+use function Sue\EventLoop\cancelTimer;
+
 //每60秒执行一次
 setInterval(60, function () {
     echo "one minute has been passed\n";
 });
 
 // 中止运行
-$timer = setInterval(1, function (string $name, int $age, \React\EventLoop\TimerInterface $timer) {
+$timer = setInterval(1, function (string $name, int $age, TimerInterface $timer) {
     if ($some_condition) {
-        \Sue\EventLoop\cancelTimer($timer);
+        cancelTimer($timer);
     }
 }, 'foo', 18);
 loop()->run();
@@ -79,9 +84,13 @@ loop()->run();
 `cancelTimer`可以取消一个已经注册的timer对象
 
 ```php
-$time_start = time();
-$timer = setInterval(1, function (\React\EventLoop\TimerInterface $timer) use ($time_start) {
-        echo "waiting...\n";
+use React\EventLoop\TimerInterface;
+
+use function Sue\EventLoop\setInterval;
+use function Sue\EventLoop\cancelTimer;
+
+$timer = setInterval(1, function (TimerInterface $timer) {
+        echo "working...\n";
 });
 if ($some_condition) {
     cancelTimer($timer);
@@ -93,7 +102,10 @@ if ($some_condition) {
 对比`setTimeout(0, $callback)`, `nextTick($callback)`有更高优先级
 
 ```php
-use Sue\EventLoop\nextTick;
+use RuntimeException;
+use Sue\EventLoop\Exceptions\PromiseCancelledException;
+
+use function Sue\EventLoop\nextTick;
 
 $promise = nextTick(function () {
     return "hello world";
@@ -106,7 +118,7 @@ $promise->then(function (string $content) {
 $promise = nextTick(function () {
     throw new RuntimeException('boom');
 });
-$promise->then(null, function (\RuntimeException $e) {
+$promise->then(null, function (RuntimeException $e) {
     echo "error: " . $e;
 });
 
