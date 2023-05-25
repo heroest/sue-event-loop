@@ -135,12 +135,15 @@ function throttleById($id, $timeout, callable $callable)
         return $promises[$id];
     }
 
-    $deferred = new \React\Promise\Deferred(function ($_, $reject) use (&$promises, $id) {
-        unset($promises[$id]);
+    $deferred = new \React\Promise\Deferred(function ($_, $reject) {
         $reject(new PromiseCancelledException("throttleById() was cancelled"));
     });
-    $runnable = function ($id, callable $callable) use (&$promises, $deferred) {
+    /** @var Promise $promise */
+    $promise = $deferred->promise();
+    $promise->always(function () use ($id, &$promises) {
         unset($promises[$id]);
+    });
+    $runnable = function (callable $callable) use ($deferred) {
         try {
             $deferred->resolve(call($callable));
         } catch (\Exception $e) {
@@ -148,7 +151,7 @@ function throttleById($id, $timeout, callable $callable)
         }
     };
 
-    $timer = setTimeout($timeout, $runnable, $id, $callable);
+    $timer = setTimeout($timeout, $runnable, $callable);
     /** @var Promise $promise */
     $promise = $deferred->promise();
     $promise->always(function () use ($timer) {
@@ -188,26 +191,28 @@ function debounceById($id, $timeout, callable $callable)
     if (isset($storage[$id])) {
         list($deferred, $timer) = $storage[$id];
         cancelTimer($timer);
+        $promise = $deferred->promise();
     } else {
-        $deferred = new \React\Promise\Deferred(function ($_, $reject) use (&$storage, $id) {
-            unset($storage[$id]);
+        $deferred = new \React\Promise\Deferred(function ($_, $reject) {
             $reject(new PromiseCancelledException("debounceById() was cancelled"));
+        });
+        /** @var Promise $promise */
+        $promise = $deferred->promise();
+        $promise->always(function () use ($id, &$storage) {
+            list($_, $timer) = $storage[$id];
+            cancelTimer($timer);
+            unset($storage[$id]);
         });
     }
 
-    $runnable = function ($id, callable $callable) use (&$storage, $deferred) {
-        unset($storage[$id]);
+    $runnable = function (callable $callable) use ($deferred) {
         try {
             $deferred->resolve(call($callable));
         } catch (\Exception $e) {
             $deferred->reject($e);
         }
     };
-    $timer = setTimeout($timeout, $runnable, $id, $callable);
-    $promise = $deferred->promise();
-    $promise->always(function () use ($timer) {
-        cancelTimer($timer);
-    });
+    $timer = setTimeout($timeout, $runnable, $callable);
     $storage[$id] = [$deferred, $timer];
     return $promise;
 }
