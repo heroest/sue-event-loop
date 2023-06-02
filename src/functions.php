@@ -240,9 +240,15 @@ function debounce($timeout, callable $callable)
 function call(callable $callable, ...$params)
 {
     static $stacks = [];
+    static $error_level = E_ALL
+        & ~E_NOTICE
+        & ~E_USER_NOTICE
+        & ~E_STRICT
+        & ~E_DEPRECATED
+        & ~E_USER_DEPRECATED;
     $stacks or set_error_handler(function ($error_no, $error_str) {
         throw new \ErrorException($error_str, $error_no, E_USER_ERROR);
-    });
+    }, $error_level);
     $stacks[] = true;
 
     try {

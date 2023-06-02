@@ -13,7 +13,6 @@ use function Sue\EventLoop\nextTick;
 use function Sue\EventLoop\debounce;
 use function Sue\EventLoop\throttle;
 
-
 class FunctionTest extends BaseTest
 {
     public function testLoop()
