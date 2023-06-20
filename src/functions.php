@@ -44,7 +44,7 @@ function setTimeout($interval, callable $callback, ...$params)
         $interval,
         function () use ($callback, $params) {
             try {
-                call($callback, ...$params);
+                call_user_func_array($callback, $params);
             } catch (\Exception $e) {
             }
         }
@@ -68,7 +68,7 @@ function setInterval($interval, callable $callback, ...$params)
         function (TimerInterface $timer) use ($callback, $params) {
             try {
                 $params[] = $timer;
-                call($callback, ...$params);
+                call_user_func_array($callback, $params);
             } catch (\Exception $e) {
                 cancelTimer($timer);
             }
@@ -105,7 +105,7 @@ function nextTick(callable $callback, ...$params)
     $callback = function () use ($deferred, $callback, $params, &$runnable) {
         if ($runnable) {
             try {
-                $deferred->resolve(call($callback, ...$params));
+                $deferred->resolve(call_user_func_array($callback, $params));
             } catch (\Exception $e) {
                 $deferred->reject($e);
             }
@@ -145,7 +145,7 @@ function throttleById($id, $timeout, callable $callable)
     });
     $runnable = function (callable $callable) use ($deferred) {
         try {
-            $deferred->resolve(call($callable));
+            $deferred->resolve(call_user_func($callable));
         } catch (\Exception $e) {
             $deferred->reject($e);
         }
@@ -207,7 +207,7 @@ function debounceById($id, $timeout, callable $callable)
 
     $runnable = function (callable $callable) use ($deferred) {
         try {
-            $deferred->resolve(call($callable));
+            $deferred->resolve(call_user_func($callable));
         } catch (\Exception $e) {
             $deferred->reject($e);
         }
@@ -236,29 +236,11 @@ function debounce($timeout, callable $callable)
  * @param callable $callable
  * @param mixed ...$params
  * @return mixed
+ * @deprecated 不在封装errorHandler
  */
 function call(callable $callable, ...$params)
 {
-    static $stacks = [];
-    static $error_level = E_ALL
-        & ~E_NOTICE
-        & ~E_USER_NOTICE
-        & ~E_STRICT
-        & ~E_DEPRECATED
-        & ~E_USER_DEPRECATED;
-    $stacks or set_error_handler(function ($error_no, $error_str) {
-        throw new \ErrorException($error_str, $error_no, E_USER_ERROR);
-    }, $error_level);
-    $stacks[] = true;
-
-    try {
-        return call_user_func_array($callable, $params);
-    } catch (\Exception $e) {
-        throw $e;
-    } finally {
-        array_pop($stacks);
-        $stacks or restore_error_handler();
-    }
+    return call_user_func_array($callable, $params);
 }
 
 /**

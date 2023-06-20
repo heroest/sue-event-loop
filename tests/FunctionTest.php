@@ -3,6 +3,7 @@
 namespace Sue\EventLoop\Tests;
 
 use ErrorException;
+use Exception;
 use Sue\EventLoop\Exceptions\PromiseCancelledException;
 
 use function Sue\EventLoop\loop;
@@ -52,7 +53,7 @@ class FunctionTest extends BaseTest
         $loop = loop();
         $time_start = $time_end = time();
         setTimeout(0, function () {
-            1 / 0;
+            throw new Exception('error');
         });
         setTimeout(1, function () use (&$time_end) {
             $time_end = time();
@@ -96,7 +97,7 @@ class FunctionTest extends BaseTest
     {
         $loop = loop();
         setInterval(0, function () {
-            1 / 0;
+            throw new Exception('error');
         });
         setTimeout(1, function () {
         });
@@ -170,7 +171,7 @@ class FunctionTest extends BaseTest
     {
         $loop = loop();
         $promise = nextTick(function () {
-            1 / 0;
+            throw new ErrorException('error');
         });
         $loop->run();
         $exception = self::unwrapSettledPromise($promise);
