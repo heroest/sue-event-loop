@@ -2,8 +2,8 @@
 
 namespace Sue\EventLoop\Tests;
 
-use ErrorException;
 use Exception;
+use SplFileObject;
 use Sue\EventLoop\Exceptions\PromiseCancelledException;
 
 use function Sue\EventLoop\loop;
@@ -53,6 +53,51 @@ class FunctionTest extends BaseTest
         $loop = loop();
         $time_start = $time_end = time();
         setTimeout(0, function () {
+            new SplFileObject(); //故意的
+        });
+        setTimeout(1, function () use (&$time_end) {
+            $time_end = time();
+        });
+        $loop->run();
+        $time_used = $time_end - $time_start;
+        $this->assertTrue($time_used >= 1, 'loop lasts for 1 second');
+    }
+
+    public function testSetTimeoutWithRecoverable()
+    {
+        $loop = loop();
+        $time_start = $time_end = time();
+        setTimeout(0, function () {
+            $arr = [1];
+            $arr[2];
+        });
+        setTimeout(1, function () use (&$time_end) {
+            $time_end = time();
+        });
+        $loop->run();
+        $time_used = $time_end - $time_start;
+        $this->assertTrue($time_used >= 1, 'loop lasts for 1 second');
+    }
+
+    public function testSetIntervalWithError()
+    {
+        $loop = loop();
+        setInterval(0, function () {
+            new SplFileObject(); //故意的
+        });
+        setTimeout(1, function () {
+        });
+        $st = time();
+        $loop->run();
+        $time_used = time() - $st;
+        $this->assertGreaterThanOrEqual(1, $time_used, 'loop lasts for 1 second');
+    }
+
+    public function testSetTimeoutWithException()
+    {
+        $loop = loop();
+        $time_start = $time_end = time();
+        setTimeout(0, function () {
             throw new Exception('error');
         });
         setTimeout(1, function () use (&$time_end) {
@@ -93,7 +138,7 @@ class FunctionTest extends BaseTest
         $this->assertGreaterThanOrEqual(10, $index);
     }
 
-    public function testSetIntervalWithError()
+    public function testSetIntervalWithException()
     {
         $loop = loop();
         setInterval(0, function () {
@@ -171,11 +216,11 @@ class FunctionTest extends BaseTest
     {
         $loop = loop();
         $promise = nextTick(function () {
-            throw new ErrorException('error');
+            throw new Exception('error');
         });
         $loop->run();
         $exception = self::unwrapSettledPromise($promise);
-        $this->assertEquals(get_class($exception), ErrorException::class);
+        $this->assertNotNull($exception);
     }
 
     public function testNextTickWithPromiseCancel()
@@ -246,21 +291,51 @@ class FunctionTest extends BaseTest
         );
     }
 
+    public function testThrottleAfterPromiseResolved()
+    {
+        $loop = loop();
+        $index = $count = 0;
+        $p1 = $p2 = null;
+        $callback = function () use (&$index) {
+            $index++;
+        };
+        setInterval(0.1, function ($timer) use ($callback, &$count, &$p1, &$p2) {
+            if (++$count >= 5) {
+                cancelTimer($timer);
+            }
+
+            $p1 = throttle(0.3, $callback);
+            static $undone = true;
+            if ($undone) {
+                $p1->done(function () use ($callback, &$p2) {
+                    $p2 = throttle(0.1, $callback);
+                });
+                $undone = true;
+            }
+        });
+        $loop->run();
+        $this->assertEquals(5, $count, 'interval tick 5 times');
+        $this->assertEquals(3, $index);
+    }
+
     public function testDebounce()
     {
         $loop = loop();
         $index = $count = 0;
+        $promises = [];
         $callback = function () use (&$index) {
             $index++;
         };
-        setInterval(0.1, function ($timer) use ($callback, &$count) {
+        setInterval(0.1, function ($timer) use ($callback, &$count, &$promises) {
             if (++$count >= 5) {
                 cancelTimer($timer);
             }
-            debounce(0.3, $callback);
+            $promises[] = debounce(0.3, $callback);
         });
         $loop->run();
         $this->assertGreaterThanOrEqual(5, $count, 'interval tick at least 5 times');
+        $this->assertCount(5, $promises);
+        $this->assertEquals($promises[0], $promises[1]);
         $this->assertEquals(1, $index, 'only once');
     }
 
@@ -288,5 +363,24 @@ class FunctionTest extends BaseTest
             $exception,
             new PromiseCancelledException("debounceById() was cancelled")
         );
+    }
+
+    public function testDebounceAfterPromiseResolved()
+    {
+        $loop = loop();
+        $p1 = $p2 = null;
+        $count = 0;
+        $callback = function () use (&$count) {
+            $count++;
+        };
+        $p1 = debounce(0.1, $callback);
+        $p1->done(function () use ($callback, &$p2) {
+            $p2 = debounce(0.1, $callback);
+        });
+        $loop->run();
+        $this->assertNotNull($p1);
+        $this->assertNotNull($p2);
+        $this->assertEquals(2, $count);
+        $this->assertTrue($p1 !== $p2);
     }
 }

@@ -45,6 +45,7 @@ function setTimeout($interval, callable $callback, ...$params)
         function () use ($callback, $params) {
             try {
                 call_user_func_array($callback, $params);
+            } catch (\Throwable $e) {
             } catch (\Exception $e) {
             }
         }
@@ -69,6 +70,8 @@ function setInterval($interval, callable $callback, ...$params)
             try {
                 $params[] = $timer;
                 call_user_func_array($callback, $params);
+            } catch (\Throwable $e) {
+                cancelTimer($timer);
             } catch (\Exception $e) {
                 cancelTimer($timer);
             }
@@ -103,12 +106,16 @@ function nextTick(callable $callback, ...$params)
         $reject(new PromiseCancelledException('nextTick() was cancelled'));
     });
     $callback = function () use ($deferred, $callback, $params, &$runnable) {
-        if ($runnable) {
-            try {
-                $deferred->resolve(call_user_func_array($callback, $params));
-            } catch (\Exception $e) {
-                $deferred->reject($e);
-            }
+        if (!$runnable) {
+            return;
+        }
+
+        try {
+            $deferred->resolve(call_user_func_array($callback, $params));
+        } catch (\Throwable $e) {
+            $deferred->reject($e);
+        } catch (\Exception $e) {
+            $deferred->reject($e);
         }
     };
     $loop->futureTick($callback);
@@ -125,39 +132,36 @@ function nextTick(callable $callback, ...$params)
  */
 function throttleById($id, $timeout, callable $callable)
 {
-    /** @var \React\Promise\Promise[] $promises */
-    static $promises = [];
+     /** @var Promise[] $promises */
+     static $promises = [];
 
-    $id = (string) $id;
-    $timeout = (float) $timeout;
-
-    if (isset($promises[$id])) {
-        return $promises[$id];
-    }
-
-    $deferred = new \React\Promise\Deferred(function ($_, $reject) {
-        $reject(new PromiseCancelledException("throttleById() was cancelled"));
-    });
-    /** @var Promise $promise */
-    $promise = $deferred->promise();
-    $promise->always(function () use ($id, &$promises) {
-        unset($promises[$id]);
-    });
-    $runnable = function (callable $callable) use ($deferred) {
-        try {
-            $deferred->resolve(call_user_func($callable));
-        } catch (\Exception $e) {
-            $deferred->reject($e);
-        }
-    };
-
-    $timer = setTimeout($timeout, $runnable, $callable);
-    /** @var Promise $promise */
-    $promise = $deferred->promise();
-    $promise->always(function () use ($timer) {
-        cancelTimer($timer);
-    });
-    return $promises[$id] = $promise;
+     $id = (string) $id;
+     $timeout = (float) $timeout;
+ 
+     if (isset($promises[$id])) {
+         return $promises[$id];
+     }
+ 
+     $deferred = new Deferred(function ($_, $reject) {
+         $reject(new PromiseCancelledException("throttleById() was cancelled"));
+     });
+     $handler = function (callable $callable, Deferred $deferred) {
+         try {
+             $deferred->resolve(call_user_func($callable));
+         } catch (\Throwable $e) {
+             $deferred->reject($e);
+         } catch (\Exception $e) {
+             $deferred->reject($e);
+         }
+     };
+ 
+     $timer = setTimeout($timeout, $handler, $callable, $deferred);
+     /** @var Promise $promise */
+     $promise = $deferred->promise();
+     return $promises[$id] = $promise->always(function () use ($timer, $id, &$promises) {
+         unset($promises[$id]);
+         cancelTimer($timer);
+     });
 }
 
 /**
@@ -189,31 +193,32 @@ function debounceById($id, $timeout, callable $callable)
     $timeout = (float) $timeout;
 
     if (isset($storage[$id])) {
-        list($deferred, $timer) = $storage[$id];
+        list($deferred, $promise, $timer) = $storage[$id];
         cancelTimer($timer);
-        $promise = $deferred->promise();
     } else {
         $deferred = new \React\Promise\Deferred(function ($_, $reject) {
             $reject(new PromiseCancelledException("debounceById() was cancelled"));
         });
         /** @var Promise $promise */
         $promise = $deferred->promise();
-        $promise->always(function () use ($id, &$storage) {
-            list($_, $timer) = $storage[$id];
-            cancelTimer($timer);
+        $promise = $promise->always(function () use ($id, &$storage) {
+            $timer = end($storage[$id]);
             unset($storage[$id]);
+            cancelTimer($timer);
         });
     }
 
-    $runnable = function (callable $callable) use ($deferred) {
+    $handler = function (callable $callable) use ($deferred) {
         try {
             $deferred->resolve(call_user_func($callable));
+        } catch (\Throwable $e) {
+            $deferred->reject($e);
         } catch (\Exception $e) {
             $deferred->reject($e);
         }
     };
-    $timer = setTimeout($timeout, $runnable, $callable);
-    $storage[$id] = [$deferred, $timer];
+    $timer = setTimeout($timeout, $handler, $callable);
+    $storage[$id] = [$deferred, $promise, $timer];
     return $promise;
 }
 
@@ -259,11 +264,11 @@ function fetchCallableUniqueId(callable $callable)
                 $ref->getStartLine(),
                 $ref->getEndLine()
             ];
-            return md5(implode('|', $items));
+            return hash('sha256', implode('|', $items));
 
         case is_string($callable):
             /** @var string $callable */
-            return md5($callable);
+            return hash('sha256', $callable);
 
         case is_array($callable):
             list($obj, $method) = $callable;
@@ -272,9 +277,9 @@ function fetchCallableUniqueId(callable $callable)
             } else {
                 $items = [strval($obj), $method];
             }
-            return md5(implode('@', $items));
+            return hash('sha256', implode('@', $items));
 
         default:
-            return md5(uniqid(microtime(true), true));
+            return hash('sha256', uniqid(microtime(true), true));
     }
 }
