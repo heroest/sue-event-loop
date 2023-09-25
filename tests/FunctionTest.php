@@ -4,8 +4,14 @@ namespace Sue\EventLoop\Tests;
 
 use Exception;
 use SplFileObject;
+use React\EventLoop\StreamSelectLoop;
+use React\Promise\Promise;
+use React\Promise\Deferred;
+use React\Promise\Timer\TimeoutException;
 use Sue\EventLoop\Exceptions\PromiseCancelledException;
 
+use function React\Promise\reject;
+use function React\Promise\resolve;
 use function Sue\EventLoop\loop;
 use function Sue\EventLoop\cancelTimer;
 use function Sue\EventLoop\setInterval;
@@ -13,9 +19,18 @@ use function Sue\EventLoop\setTimeout;
 use function Sue\EventLoop\nextTick;
 use function Sue\EventLoop\debounce;
 use function Sue\EventLoop\throttle;
+use function Sue\EventLoop\isLoopRunning;
+use function Sue\EventLoop\await;
 
 class FunctionTest extends BaseTest
 {
+    public function testLoopWithOther()
+    {
+        $select_loop = new StreamSelectLoop();
+        $loop = loop($select_loop);
+        $this->assertTrue($select_loop === $loop);
+    }
+
     public function testLoop()
     {
         $loop = loop();
@@ -32,6 +47,18 @@ class FunctionTest extends BaseTest
         $loop->run();
         $time_used = $time_end - $time_start;
         $this->assertTrue($time_used >= 1, 'event loop with one second timer');
+    }
+
+    public function testIsLoopRunning()
+    {
+        loop()->stop();
+        $this->assertFalse(isLoopRunning());
+        $bool = false;
+        setTimeout(0, function() use (&$bool) {
+            $bool = isLoopRunning();
+        });
+        loop()->run();
+        $this->assertTrue($bool);
     }
 
     public function testSetTimeout()
@@ -310,7 +337,7 @@ class FunctionTest extends BaseTest
                 $p1->done(function () use ($callback, &$p2) {
                     $p2 = throttle(0.1, $callback);
                 });
-                $undone = true;
+                $undone = false;
             }
         });
         $loop->run();
@@ -382,5 +409,89 @@ class FunctionTest extends BaseTest
         $this->assertNotNull($p2);
         $this->assertEquals(2, $count);
         $this->assertTrue($p1 !== $p2);
+    }
+
+    public function testAwait()
+    {
+        loop()->stop();
+        $deferred = new Deferred();
+        setTimeout(0.5, function () use ($deferred) {
+            $deferred->resolve('foo');
+        });
+        $stopped = false;
+        setTimeout(1, function () use (&$stopped) {
+            $stopped = true;
+            loop()->stop();
+        });
+        $st = microtime(true);
+        $result = await($deferred->promise());
+        $time_used = bcsub(microtime(true), $st, 4);
+        $this->assertEquals($result, 'foo');
+        $this->assertFalse($stopped);
+        $this->assertGreaterThanOrEqual(0.5, $time_used, 'loop lasts for 0.5 seconds');
+    }
+
+    public function testAwaitWithError()
+    {
+        $exception = null;
+        setTimeout(0.2, function () use (&$exception) {
+            try {
+                await(new Promise(static function () {}, null));
+            } catch (\Throwable $e) {
+                $exception = $e;
+            } catch (\Exception $e) {
+                $exception = $e;
+            }
+        });
+        $st = microtime(true);
+        loop()->run();
+        $time_used = bcsub(microtime(true), $st, 4);
+        $this->assertNotNull($exception);
+        $this->assertEquals($exception, new \BadMethodCallException('await can only be called in a stopped loop'));
+        $this->assertGreaterThanOrEqual(0.2, $time_used, 'loop lasts for 0.2 seconds');
+    }
+
+    public function testAwaitWithTimeout()
+    {
+        $promise = new Promise(static function () {}, null);
+        $st = microtime(true);
+        $exception = null;
+        try {
+            await($promise, 0.5);
+        } catch (\Throwable $e) {
+            $exception = $e;
+        } catch (\Exception $e) {
+            $exception = $e;
+        }
+        
+        $time_used = bcsub(microtime(true), $st, 4);
+        $this->assertGreaterThanOrEqual(0.5, $time_used, 'loop lasts for 0.5 seconds');
+        $this->assertTrue($exception instanceof TimeoutException);
+    }
+
+    public function testAwaitResolvedPromise()
+    {
+        $promise = resolve(true);
+        $st = microtime(true);
+        await($promise);
+        $time_used = bcsub(microtime(true), $st, 4);
+        $this->assertLessThanOrEqual(0.1, $time_used);
+    }
+
+    public function testAwaitRejectedPromise()
+    {
+        $promise = reject(new \Exception('foo'));
+        $st = microtime(true);
+        $exception = null;
+        try {
+            await($promise);
+        } catch (\Throwable $e) {
+            $exception = $e;
+        } catch (\Exception $e) {
+            $exception = $e;
+        }
+        $time_used = bcsub(microtime(true), $st, 4);
+        $this->assertLessThanOrEqual(0.1, $time_used);
+        $this->assertTrue($exception instanceof \Exception);
     }
 }

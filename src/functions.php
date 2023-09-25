@@ -4,28 +4,85 @@ namespace Sue\EventLoop;
 
 use Closure;
 use ReflectionFunction;
+use BadMethodCallException;
 use React\EventLoop\Factory;
 use React\EventLoop\Loop;
+use React\EventLoop\LoopInterface;
 use React\EventLoop\TimerInterface;
 use React\Promise\Deferred;
 use React\Promise\PromiseInterface;
 use React\Promise\Promise;
 use Sue\EventLoop\Exceptions\PromiseCancelledException;
 
+use function React\Promise\Timer\timeout;
+
 /**
  * 获取eventloop唯一实例
  *
+ * @param null|\React\EventLoop\LoopInterface $other 注入LoopInterface实例
  * @return \React\EventLoop\LoopInterface
  * ```
  */
-function loop()
+function loop(LoopInterface $other = null)
 {
     static $loop = null;
     if (null === $loop) {
-        $loop = Factory::create();
+        $loop = $other ?: Factory::create();
         Loop::set($loop);
+    } elseif ($other) {
+        throw new BadMethodCallException("loop already exists");
     }
     return $loop;
+}
+
+/**
+ * loop是否已启动
+ *
+ * @return boolean
+ */
+function isLoopRunning()
+{
+    $reflection = new \ReflectionObject(loop());
+    $prop = $reflection->getProperty('running');
+    $prop->setAccessible(true);
+    return (bool) $prop->getValue(loop());
+}
+
+/**
+ * 启动一个loop并阻塞等待promise被settled
+ * ***不能在一个已经启动了的loop中运行***
+ *
+ * @param PromiseInterface $promise
+ * @param float $timeout 超时时间(秒)
+ * @return mixed
+ * @throws \Exception
+ */
+function await(PromiseInterface $promise, $timeout = 0)
+{
+    if (isLoopRunning()) {
+        throw new BadMethodCallException('await can only be called in a stopped loop');
+    }
+
+    $timeout = (float) $timeout;
+    $timeout > 0 and $promise = timeout($promise, $timeout, loop());
+
+    $result = null;
+    $settled = false;
+    $closure = function ($value) use (&$result, &$settled) {
+        $settled = true;
+        $result = $value;
+        loop()->stop();
+    };
+
+    /** @var Promise $promise */
+    $promise->done($closure, $closure);
+    $settled or loop()->run();
+
+    if ($result instanceof \Throwable or $result instanceof \Exception) {
+        throw $result;
+    } else {
+        return $result;
+    }
 }
 
 /**

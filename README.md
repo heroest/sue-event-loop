@@ -8,14 +8,16 @@
 
 * [Methods](#methods)
     * [Sue\EventLoop\loop()](#loop)
+    * [Sue\EventLoop\isLoopRunning()](#isLoopRunning)
+    * [Sue\EventLoop\await()](#await)
     * [Sue\EventLoop\setTimeout()](#settimeout)
     * [Sue\EventLoop\setInterval()](#setinterval)
     * [Sue\EventLoop\cancelTimer()](#canceltimer)
-    * [Sue\EventLoop\nextTick](#nexttick)
-    * [Sue\EventLoop\throttle](#throttle)
-    * [Sue\EventLoop\throttleById](#throttlebyId)
-    * [Sue\EventLoop\debounce](#debounce)
-    * [Sue\EventLoop\debounceById](#debouncebyId)
+    * [Sue\EventLoop\nextTick()](#nexttick)
+    * [Sue\EventLoop\throttle()](#throttle)
+    * [Sue\EventLoop\throttleById()](#throttlebyId)
+    * [Sue\EventLoop\debounce()](#debounce)
+    * [Sue\EventLoop\debounceById()](#debouncebyId)
 * [Install](#install)
 * [Tests](#tests)
 * [License](#license)
@@ -33,6 +35,35 @@ $loop->run();
 
 //loop停止运行
 $loop->stop(); 
+```
+
+#### isLoopRunning
+判断全局的eventloop是不是正在运行中
+```php
+setInterval(1, function () {
+    if (isLoopRunning()) {
+        echo "Loop is running";
+    }
+});
+loop()->run();
+```
+
+#### await
+`await($promise, $timeout)`启动一个临时eventloop来处理promise, 当promise被settle后终止当前eventloop. 该方法适用于传统的阻塞php模型（比如php-fpm）中使用异步的特性. 方法返回promise resolved的值或者抛出异常
+*** 该方法无法在一个已启动eventloop中使用 ***
+```php
+try {
+    $promise = someIoHeavyOperation();
+    $result = await($promise); //程序会阻塞在这里一直等待$promise被resolved或者rejected
+    handle($result);
+} catch (Throwable $e) {
+    //error handle
+} 
+```
+
+```php
+//await方法第个参数接受一个float作为promise的timeout，以免promise长时间阻塞程序流程
+$result = await($promise, 10);
 ```
 
 #### setTimeout
